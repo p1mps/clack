@@ -4,9 +4,17 @@
             [clojure.core.async :as async]
             [manifold.stream :as ms]
             [org.httpkit.client :as http]
-            [taoensso.timbre :as timbre]))
+            [taoensso.timbre :as timbre])
+  (:import [java.net URI]
+           [javax.net.ssl SNIHostName SSLEngine SSLParameters]))
 
 (def SLACK_API_URL "https://slack.com/api")
+
+(defn sni-configure
+  [^SSLEngine ssl-engine ^URI uri]
+  (let [^SSLParameters ssl-params (.getSSLParameters ssl-engine)]
+    (.setServerNames ssl-params [(SNIHostName. (.getHost uri))])
+    (.setSSLParameters ssl-engine ssl-params)))
 
 (defn- parse-initial-config
   [body]
@@ -15,10 +23,12 @@
     {:my-user-id (get-in data ["self" "id"])
      :websocket-url (data "url")}))
 
+(def client (http/make-client {:ssl-configurer sni-configure}))
+
 (defn get-initial-config
   [slack-api-token]
   (future
-    (let [opts {:query-params {:token slack-api-token}}
+    (let [opts {:client client :query-params {:token slack-api-token}}
           url (str SLACK_API_URL "/rtm.connect")
           {:keys [status body error]} @(http/get url opts)]
       (if error
